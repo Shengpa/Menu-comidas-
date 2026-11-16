@@ -180,6 +180,34 @@ const QUALITY_RULES = `Prestá atención al nivel de detalle de un cocinero prof
 
 const VARIETY_RULES = `Variedad real de principio a fin: además de no repetir la misma proteína ni la misma técnica dos días seguidos, tampoco repitas el mismo acompañamiento principal en más de un día de la semana (por ejemplo, si el lunes servís "pollo con arroz", el arroz como acompañamiento no puede volver a aparecer como base de otro día, aunque cambie la proteína — variá entre arroz, puré, papas, ensalada, vegetales salteados, polenta, etc. a lo largo de la semana). Incluí pescado o algún fruto de mar en al menos un día de la semana, salvo que las restricciones del usuario digan lo contrario (vegetariano, vegano, no come pescado, etc.).`;
 
+/* ---------- Estación del año (Argentina, hemisferio sur) ---------- */
+// Calor: octubre a marzo · Frío: mayo a agosto · Templado: abril y septiembre.
+function currentSeason(d = state.today || new Date()) {
+  const m = d.getMonth(); // 0 = enero
+  if (m >= 9 || m <= 2) return "calor";
+  if (m >= 4 && m <= 7) return "frio";
+  return "templado";
+}
+
+function classicsList() {
+  switch (currentSeason()) {
+    case "calor": return "milanesas con ensalada, tartas, pastas caseras con salsas livianas, salteados, carnes o pescados a la plancha o a la parrilla";
+    case "frio": return "milanesas, tartas, guisos, pastas caseras, salteados, platos al horno";
+    default: return "milanesas, tartas, pastas caseras, salteados, platos al horno";
+  }
+}
+
+function seasonLine() {
+  switch (currentSeason()) {
+    case "calor":
+      return `Estamos en época de calor en Argentina: elegí platos frescos y livianos, que den ganas de comer en un día caluroso y que no obliguen a tener el horno o la hornalla prendidos mucho tiempo (ensaladas completas, carnes, pollo o pescado a la plancha o a la parrilla con guarnición fresca, tartas y quiches, wok y salteados rápidos, wraps, tacos, fajitas, pastas con salsas livianas o frías, milanesas con ensalada, vitel toné, ceviche, brochettes, etc.). PROHIBIDO en esta época: guisos, estofados, locro, carbonada, puchero, mondongo, sopas y caldos calientes, lentejas o garbanzos guisados, polenta con tuco, y cualquier "plato de cuchara" caliente de invierno. Los platos pesados al horno (lasaña, canelones, pastel de papa, gratinados con crema) van como mucho UNO por semana. Las legumbres pueden aparecer, pero frías o en ensalada (ensalada de lentejas, garbanzos con verduras, hummus en un wrap).`;
+    case "frio":
+      return `Estamos en época de frío en Argentina: está bien incluir platos calientes y reconfortantes (guisos, estofados, sopas, locro, platos al horno), mezclados con opciones más livianas para que la semana no quede pesada.`;
+    default:
+      return `Estamos en una época templada en Argentina: alterná platos livianos con alguno más contundente; evitá los guisos y sopas más pesados de pleno invierno (locro, puchero, mondongo).`;
+  }
+}
+
 function restrictionsLine() {
   return state.restrictions?.trim()
     ? `Restricciones o preferencias del usuario que SIEMPRE tenés que respetar: ${state.restrictions.trim()}.`
@@ -193,7 +221,7 @@ function buildWeekPrompt(previousDishes, favoriteDishes, weekLabel) {
   const favLine = favoriteDishes.length
     ? `Estos son platos favoritos del usuario: podés repetir COMO MUCHO UNO de ellos esta semana si encaja bien, aunque haya salido antes: ${favoriteDishes.join(", ")}.`
     : "";
-  const system = `Sos un cocinero profesional que escribe recetas caseras para una familia en Argentina, con la precisión de alguien que las va a testear él mismo antes de publicarlas. Respondé ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después, sin markdown, sin comentarios. Las recetas son para 4 porciones exactas, sin restricciones alimentarias salvo que se indique lo contrario. Priorizá variedad real: en los 5 días de la semana, usá proteínas principales distintas en la mayor cantidad de días posible — ninguna proteína (pollo, carne vacuna, cerdo, pescado o mariscos, legumbres) puede aparecer en más de 2 de los 5 días, y nunca en días consecutivos; tampoco repitas la misma técnica de cocción dos días seguidos. Mezclá clásicos caseros argentinos (milanesas, tartas, guisos, pastas caseras, salteados, platos al horno) con comida internacional simple y fácil de conseguir en un supermercado argentino común (wok, curry suave, tacos, pasta italiana, comida asiática fácil). ${SEQUENCE_RULES} ${QUALITY_RULES} ${VARIETY_RULES} ${restrictionsLine()}`;
+  const system = `Sos un cocinero profesional que escribe recetas caseras para una familia en Argentina, con la precisión de alguien que las va a testear él mismo antes de publicarlas. Respondé ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después, sin markdown, sin comentarios. Las recetas son para 4 porciones exactas, sin restricciones alimentarias salvo que se indique lo contrario. Priorizá variedad real: en los 5 días de la semana, usá proteínas principales distintas en la mayor cantidad de días posible — ninguna proteína (pollo, carne vacuna, cerdo, pescado o mariscos, legumbres) puede aparecer en más de 2 de los 5 días, y nunca en días consecutivos; tampoco repitas la misma técnica de cocción dos días seguidos. Mezclá clásicos caseros argentinos (${classicsList()}) con comida internacional simple y fácil de conseguir en un supermercado argentino común (wok, curry suave, tacos, pasta italiana, comida asiática fácil). ${SEQUENCE_RULES} ${QUALITY_RULES} ${VARIETY_RULES} ${seasonLine()} ${restrictionsLine()}`;
   const user = `Generá el menú de 5 días (Lunes a Viernes) para la semana del ${weekLabel}. ${avoid} ${favLine}
 Devolvé exactamente este formato JSON (sin explicaciones fuera del JSON):
 {
@@ -212,7 +240,7 @@ function buildSingleDayPrompt(day, weekLabel, otherDishes, previousDishes, favor
   const avoidAll = [...otherDishes, ...previousDishes];
   const avoid = avoidAll.length ? `Platos que NO tenés que usar (ya están en esta semana o en semanas anteriores): ${avoidAll.join(", ")}.` : "";
   const favLine = favoriteDishes.length ? `Si encaja bien, podés elegir uno de estos favoritos: ${favoriteDishes.join(", ")}.` : "";
-  const system = `Sos un cocinero profesional que escribe recetas caseras para una familia en Argentina, con la precisión de alguien que las va a testear él mismo antes de publicarlas. Respondé ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después, sin markdown. La receta es para 4 porciones exactas. ${SEQUENCE_RULES} ${QUALITY_RULES} ${VARIETY_RULES} ${restrictionsLine()}`;
+  const system = `Sos un cocinero profesional que escribe recetas caseras para una familia en Argentina, con la precisión de alguien que las va a testear él mismo antes de publicarlas. Respondé ÚNICAMENTE con un objeto JSON válido, sin texto antes ni después, sin markdown. La receta es para 4 porciones exactas. ${SEQUENCE_RULES} ${QUALITY_RULES} ${VARIETY_RULES} ${seasonLine()} ${restrictionsLine()}`;
   const user = `Necesito UN plato nuevo y distinto para reemplazar el de ${day} de la semana del ${weekLabel}. ${avoid} ${favLine}
 Devolvé exactamente este formato JSON:
 {"category": "2-3 palabras", "dish": "nombre del plato", "prep_minutes": 40, ${ingredientFormatSpec()}, ${stepsFormatSpec()}}
