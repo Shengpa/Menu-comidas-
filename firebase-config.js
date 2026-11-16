@@ -10,3 +10,7 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
+
+// Caché local de Firestore (IndexedDB): las lecturas salen del teléfono al toque y
+// se sincronizan con la nube en segundo plano. Si el navegador no lo soporta, sigue igual.
+db.enablePersistence({ synchronizeTabs: true }).catch((e) => console.warn("Sin caché offline:", e?.code || e));

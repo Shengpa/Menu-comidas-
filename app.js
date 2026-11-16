@@ -510,43 +510,92 @@ async function regenerateDay(dayName) {
   render();
 }
 
+/* ---------- Caché local (arranque instantáneo) ---------- */
+// Guardamos una copia de lo último que se vio en localStorage. Al abrir la app se muestra
+// eso al instante y en paralelo se trae lo nuevo de Firestore para actualizar.
+const SNAPSHOT_KEY = "menuApp_snapshot_v1";
+function readSnapshot() {
+  try { return JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || "null"); } catch (e) { return null; }
+}
+let snapshotTimer = null;
+function saveSnapshot() {
+  if (state.loading) return;
+  clearTimeout(snapshotTimer);
+  snapshotTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(SNAPSHOT_KEY, JSON.stringify({
+        mondayISO: state.range?.mondayISO,
+        current: state.current,
+        recentWeeks: state.recentWeeks,
+        favorites: [...state.favorites],
+        restrictions: state.restrictions,
+        checklist: state.checklist,
+      }));
+    } catch (e) { /* sin espacio o modo privado: no pasa nada */ }
+  }, 300);
+}
+
 /* ---------- Carga inicial ---------- */
 async function init() {
   state.today = new Date();
   state.range = getWeekRange(state.today);
 
-  try { state.recentWeeks = await loadRecentWeeks(); } catch (e) { console.error(e); }
-  try { state.favorites = await loadFavorites(); } catch (e) { console.error(e); }
-  try {
-    const settings = await loadSettings();
-    state.restrictions = settings.restrictions || "";
-  } catch (e) { console.error(e); }
+  // 1) Mostrar al instante lo guardado de esta misma semana (si existe).
+  const snap = readSnapshot();
+  const fromSnapshot = !!(snap && snap.mondayISO === state.range.mondayISO && snap.current);
+  if (fromSnapshot) {
+    state.current = snap.current;
+    state.recentWeeks = snap.recentWeeks || [];
+    state.favorites = new Set(snap.favorites || []);
+    state.restrictions = snap.restrictions || "";
+    state.checklist = snap.checklist || {};
+    state.expandedDay = state.current.days?.[0]?.day || null;
+    state.loading = false;
+    render();
+  }
 
-  try {
-    const existing = await loadWeek(state.range.mondayISO);
+  // 2) Traer todo de Firestore EN PARALELO (antes eran 5 consultas una detrás de otra).
+  const mondayISO = state.range.mondayISO;
+  const [recentR, favR, settingsR, weekR, checklistR] = await Promise.allSettled([
+    loadRecentWeeks(),
+    loadFavorites(),
+    loadSettings(),
+    loadWeek(mondayISO),
+    loadChecklist(mondayISO),
+  ]);
+  [recentR, favR, settingsR, weekR, checklistR].forEach((r) => { if (r.status === "rejected") console.error(r.reason); });
+
+  // Si mientras tanto el usuario arrancó a generar algo, no le pisamos el estado.
+  const busy = state.generating || state.generatingDay;
+
+  if (recentR.status === "fulfilled" && !busy) state.recentWeeks = recentR.value;
+  if (favR.status === "fulfilled") state.favorites = favR.value;
+  if (settingsR.status === "fulfilled") state.restrictions = settingsR.value.restrictions || "";
+
+  if (weekR.status === "rejected") {
+    if (!fromSnapshot) state.error = "No se pudo conectar con la base de datos.";
+  } else if (!busy) {
+    const existing = weekR.value;
     if (existing) {
       state.current = existing;
-    } else if (state.today.getDay() === 0 && hasProviderKey()) {
+      if (checklistR.status === "fulfilled") state.checklist = checklistR.value;
+    } else if (!fromSnapshot && state.today.getDay() === 0 && hasProviderKey()) {
+      state.loading = false;
       state.generating = true;
       render();
       try {
         state.current = await generateWeek(state.range);
         state.recentWeeks = await loadRecentWeeks();
+        state.checklist = {};
       } catch (e) {
         console.error(e);
         state.error = `No se pudo generar el menú automáticamente (${e?.message || "error desconocido"}). Probá con el botón manual.`;
       }
       state.generating = false;
     }
-  } catch (e) {
-    console.error(e);
-    state.error = "No se pudo conectar con la base de datos.";
   }
 
-  if (state.current) {
-    try { state.checklist = await loadChecklist(state.current.mondayISO); } catch (e) { state.checklist = {}; }
-    state.expandedDay = state.current.days?.[0]?.day || null;
-  }
+  if (state.current && !state.expandedDay) state.expandedDay = state.current.days?.[0]?.day || null;
 
   state.loading = false;
   render();
@@ -731,6 +780,7 @@ window.addEventListener("afterprint", () => {
 
 /* ---------- Render ---------- */
 function render() {
+  saveSnapshot();
   const app = document.getElementById("app");
   const hoy = formatHoy(state.today);
   const esDomingo = state.today.getDay() === 0;
